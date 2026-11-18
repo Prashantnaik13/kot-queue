@@ -1,0 +1,598 @@
+/* ==========================================================================
+   KOT Live Order Management
+   Palette: stainless-steel light grey page, deep pine table header,
+   status colours fixed by spec (orange / blue / green).
+   ========================================================================== */
+
+:root {
+  --page-bg: #e9edf0;
+  --surface: #ffffff;
+  --ink: #17212b;
+  --ink-soft: #5a6773;
+  --line: #e3e8ec;
+  --head-bg: #14302b;
+  --head-ink: #e8f2ef;
+  --live: #16a34a;
+
+  --pending: #d9600b;
+  --pending-bg: #fff0e3;
+  --process: #1f5fd1;
+  --process-bg: #e6eefc;
+  --done: #178a3e;
+  --done-bg: #e3f6ea;
+
+  --warn: #b7791f;
+  --warn-bg: #fff8e1;
+  --warn-bg-hover: #fff1c7;
+  --critical: #c42b2b;
+  --critical-bg: #fff0f0;
+  --critical-bg-hover: #ffe0e0;
+
+  --row-hover: #f3f7f9;
+  --radius: 14px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--page-bg);
+  color: var(--ink);
+  font-family: 'Segoe UI', 'Helvetica Neue', Roboto, 'Noto Sans', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------- Page shell ---------- */
+.kot-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  padding: 20px 24px 24px;
+  gap: 16px;
+}
+
+/* ---------- Header ---------- */
+.kot-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.kot-title-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.kot-title-row h1 {
+  margin: 0;
+  font-size: 1.75rem;
+  font-weight: 750;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+.kot-subtitle {
+  margin: 4px 0 0;
+  color: var(--ink-soft);
+  font-size: 0.95rem;
+}
+
+.live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px 5px 10px;
+  border-radius: 999px;
+  background: #e1f5e8;
+  color: #11692f;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.live-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--live);
+  box-shadow: 0 0 0 0 rgba(22, 163, 74, 0.55);
+  animation: live-pulse 1.8s ease-out infinite;
+}
+
+@keyframes live-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0.55); }
+  70% { box-shadow: 0 0 0 9px rgba(22, 163, 74, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0); }
+}
+
+/* ---------- Stats + refresh ---------- */
+.kot-stats {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 92px;
+  padding: 8px 16px;
+  background: var(--surface);
+  border-radius: 12px;
+  border: 1px solid var(--line);
+}
+
+.stat-main {
+  background: var(--head-bg);
+  border-color: var(--head-bg);
+  color: var(--head-ink);
+}
+
+.stat-value {
+  font-size: 1.7rem;
+  font-weight: 800;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-value-pending { color: var(--pending); }
+.stat-value-process { color: var(--process); }
+
+.stat-label {
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+}
+
+.stat-main .stat-label {
+  color: #a9c4bd;
+}
+
+.refresh-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 6px;
+}
+
+.refresh-time {
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.refresh-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border: 1px solid #c6d0d6;
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.refresh-btn:hover:not(:disabled) {
+  background: #f1f5f7;
+  border-color: #9fb0ba;
+}
+
+.refresh-btn:disabled {
+  opacity: 0.7;
+  cursor: progress;
+}
+
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ---------- Error banner ---------- */
+.error-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: #fff1f1;
+  border: 1px solid #f3c2c2;
+  color: #8f1d1d;
+  font-size: 0.9rem;
+}
+
+/* ---------- Table card ---------- */
+.table-card {
+  flex: 1;
+  min-height: 280px;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  box-shadow: 0 6px 24px rgba(20, 48, 43, 0.08);
+  overflow: hidden;
+}
+
+.table-scroll {
+  flex: 1;
+  overflow: auto;
+}
+
+.kot-table {
+  width: 100%;
+  min-width: 860px;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.kot-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 14px 18px;
+  background: var(--head-bg);
+  color: var(--head-ink);
+  text-align: left;
+  font-size: 0.85rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.kot-table tbody td {
+  padding: 16px 18px;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--line);
+  background: var(--row-bg, var(--surface));
+  transition: background 0.15s;
+}
+
+.kot-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.kot-table tbody tr {
+  --row-bg: var(--surface);
+  --row-bg-hover: var(--row-hover);
+}
+
+.kot-table tbody tr.is-warn {
+  --row-bg: var(--warn-bg);
+  --row-bg-hover: var(--warn-bg-hover);
+}
+
+.kot-table tbody tr.is-critical {
+  --row-bg: var(--critical-bg);
+  --row-bg-hover: var(--critical-bg-hover);
+}
+
+.kot-table tbody tr:hover td {
+  background: var(--row-bg-hover);
+}
+
+/* Left edge marker for long waits */
+.kot-table tbody tr.is-warn td:first-child { box-shadow: inset 5px 0 0 var(--warn); }
+.kot-table tbody tr.is-critical td:first-child { box-shadow: inset 5px 0 0 var(--critical); }
+
+.col-queue { width: 110px; }
+.col-kot { width: 130px; }
+.col-time { width: 170px; }
+.col-wait { width: 190px; }
+.col-status { width: 140px; }
+.col-action { width: 140px; }
+
+/* ---------- Cells ---------- */
+.queue-no {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  height: 44px;
+  padding: 0 8px;
+  border-radius: 12px;
+  background: #edf2f4;
+  color: var(--ink);
+  font-size: 1.35rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.kot-id {
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.item-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.item-list li {
+  font-size: 0.98rem;
+  font-weight: 500;
+}
+
+.item-qty {
+  display: inline-block;
+  min-width: 28px;
+  margin-right: 4px;
+  font-weight: 800;
+  color: var(--head-bg);
+  font-variant-numeric: tabular-nums;
+}
+
+.time-main {
+  display: block;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.time-sub {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+}
+
+.wait {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 1.05rem;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.wait-normal { color: var(--ink); }
+.wait-warn { color: var(--warn); }
+.wait-critical { color: var(--critical); }
+
+/* ---------- Status badges ---------- */
+.status-badge {
+  display: inline-block;
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.status-pending { background: var(--pending-bg); color: var(--pending); }
+.status-in-process { background: var(--process-bg); color: var(--process); }
+.status-completed { background: var(--done-bg); color: var(--done); }
+
+/* ---------- Action buttons ---------- */
+.actions {
+  display: flex;
+  gap: 10px;
+}
+
+.tooltip-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+/* Tooltip opens to the left so it never clips at the top/bottom of the scroll area */
+.tooltip-wrap::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  right: calc(100% + 8px);
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 5px 10px;
+  border-radius: 6px;
+  background: #1c2a33;
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 500;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s;
+  z-index: 5;
+}
+
+.tooltip-wrap:hover::after,
+.tooltip-wrap:focus-within::after {
+  opacity: 1;
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: transform 0.12s, background 0.15s, color 0.15s, box-shadow 0.15s;
+}
+
+.icon-btn:hover:not(:disabled) {
+  transform: scale(1.08);
+}
+
+.icon-btn:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.icon-btn:focus-visible,
+.refresh-btn:focus-visible {
+  outline: 3px solid #7fb1ff;
+  outline-offset: 2px;
+}
+
+.btn-process {
+  background: var(--process-bg);
+  color: var(--process);
+}
+
+.btn-process:hover:not(:disabled) {
+  background: var(--process);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(31, 95, 209, 0.35);
+}
+
+.btn-complete {
+  background: var(--done-bg);
+  color: var(--done);
+  font-size: 1.15rem;
+}
+
+.btn-complete:hover:not(:disabled) {
+  background: var(--done);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(23, 138, 62, 0.35);
+}
+
+.icon-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+/* Process button after it has been used: solid blue, clearly "on" */
+.btn-process:disabled {
+  background: var(--process);
+  color: #fff;
+}
+
+/* ---------- Empty / loading / error panels ---------- */
+.state-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 40px 20px;
+  text-align: center;
+}
+
+.state-icon {
+  font-size: 2.6rem;
+  color: #9db3ad;
+}
+
+.state-icon-error { color: var(--critical); }
+
+.state-title {
+  margin: 8px 0 0;
+  font-size: 1.2rem;
+  font-weight: 700;
+}
+
+.state-text {
+  margin: 0 0 8px;
+  max-width: 380px;
+  color: var(--ink-soft);
+}
+
+.loader {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 4px solid #d6e2df;
+  border-top-color: var(--head-bg);
+  animation: spin 0.8s linear infinite;
+}
+
+/* ---------- Toast ---------- */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  max-width: calc(100vw - 32px);
+  padding: 12px 20px;
+  border-radius: 10px;
+  color: #fff;
+  font-size: 0.92rem;
+  font-weight: 600;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.25);
+  z-index: 20;
+}
+
+.toast-success { background: #15803d; }
+.toast-error { background: #b42318; }
+
+/* ---------- Responsive ---------- */
+@media (max-width: 1024px) {
+  .kot-page { padding: 16px; }
+  .kot-title-row h1 { font-size: 1.5rem; }
+}
+
+@media (max-width: 768px) {
+  .kot-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
+  }
+
+  .kot-stats { gap: 8px; }
+
+  .stat {
+    flex: 1;
+    min-width: 0;
+    padding: 8px 12px;
+  }
+
+  .refresh-block {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .kot-table thead th,
+  .kot-table tbody td { padding: 12px 12px; }
+
+  .kot-subtitle { font-size: 0.88rem; }
+}
+
+@media (max-width: 480px) {
+  .kot-page { padding: 12px; gap: 12px; }
+  .kot-title-row h1 { font-size: 1.3rem; }
+  .stat-value { font-size: 1.4rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-dot,
+  .spin,
+  .loader { animation-duration: 3s; }
+  .icon-btn,
+  .kot-table tbody td { transition: none; }
+}
