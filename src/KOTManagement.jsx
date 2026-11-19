@@ -1,25 +1,66 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  FaPlay,
-  FaCheckCircle,
-  FaSyncAlt,
-  FaUtensils,
-  FaExclamationTriangle,
-} from 'react-icons/fa';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { fetchKots, updateKotStatus } from './api/kotApi';
 import {
+  getElapsedSeconds,
   formatDuration,
-  formatOrderDate,
+  getWaitLevel,
   formatOrderTime,
   formatRefreshTime,
-  getElapsedSeconds,
-  getWaitLevel,
-  parseTimestamp,
 } from './utils/timeUtils';
 import './KOTManagement.css';
 
-const POLL_INTERVAL_MS = 5000;
-const TOAST_DURATION_MS = 4000;
+// Professional SVG Icons
+const PlayIcon = () => (
+  <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
+    <path d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11-6.86a1 1 0 0 0 0-1.72l-11-6.86a1 1 0 0 0-1.5.86z" />
+  </svg>
+);
+
+const CheckIcon = () => (
+  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polyline points="20 6 9 17 4 12" />
+  </svg>
+);
+
+const ClockIcon = () => (
+  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <circle cx="12" cy="12" r="10" />
+    <polyline points="12 6 12 12 16 14" />
+  </svg>
+);
+
+const ChefHatIcon = () => (
+  <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M6 13.8a4 4 0 0 1-1.5-7.8A4.5 4.5 0 0 1 13 4.2a4.5 4.5 0 0 1 8.5 1.8 4 4 0 0 1-1.5 7.8" />
+    <path d="M6 14h12v4a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2v-4z" />
+    <line x1="6" y1="17" x2="18" y2="17" />
+  </svg>
+);
+
+const RefreshIcon = ({ spinning }) => (
+  <svg className={`refresh-svg ${spinning ? 'spin' : ''}`} viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polyline points="23 4 23 10 17 10" />
+    <polyline points="1 20 1 14 7 14" />
+    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+  </svg>
+);
+
+const AlertTriangleIcon = () => (
+  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+    <line x1="12" y1="9" x2="12" y2="13" />
+    <line x1="12" y1="17" x2="12.01" y2="17" />
+  </svg>
+);
+
+const NoteIcon = () => (
+  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+    <polyline points="14 2 14 8 20 8" />
+    <line x1="16" y1="13" x2="8" y2="13" />
+    <line x1="16" y1="17" x2="8" y2="17" />
+  </svg>
+);
 
 const STATUS = {
   PENDING: 'Pending',
@@ -27,329 +68,338 @@ const STATUS = {
   COMPLETED: 'Completed',
 };
 
-// A status can only move forward. Used to keep local changes when a stale poll arrives.
-const STATUS_RANK = {
-  [STATUS.PENDING]: 0,
-  [STATUS.IN_PROCESS]: 1,
-  [STATUS.COMPLETED]: 2,
-};
-
-const statusClass = (status) => `status-${status.toLowerCase().replace(/\s+/g, '-')}`;
-
-/**
- * Merge a fresh server list into local state:
- *  - de-duplicates by id
- *  - keeps a locally-updated status if the server hasn't caught up yet
- */
-function mergeServerOrders(serverOrders, overrides) {
-  const byId = new Map();
-  serverOrders.forEach((order) => {
-    const override = overrides[order.id];
-    if (override === undefined) {
-      byId.set(order.id, order);
-    } else if ((STATUS_RANK[order.status] ?? 0) >= STATUS_RANK[override]) {
-      delete overrides[order.id]; // server caught up
-      byId.set(order.id, order);
-    } else {
-      byId.set(order.id, { ...order, status: override });
-    }
-  });
-  return Array.from(byId.values());
-}
-
-/** One shared 1-second clock. Every row derives its own timer from created_at, so polling never resets it. */
-function useNow(intervalMs = 1000) {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), intervalMs);
-    return () => clearInterval(id);
-  }, [intervalMs]);
-  return now;
-}
+const POLL_INTERVAL_MS = 3000;
 
 export default function KOTManagement() {
-  const [orders, setOrders] = useState([]);
+  const [kots, setKots] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
-  const [lastRefresh, setLastRefresh] = useState(null);
-  const [busyIds, setBusyIds] = useState([]);
-  const [toast, setToast] = useState(null);
+  const [lastUpdated, setLastUpdated] = useState(null);
+  const [now, setNow] = useState(Date.now());
+  const [updatingId, setUpdatingId] = useState(null);
+  const [filter, setFilter] = useState('ALL'); // 'ALL' | 'Pending' | 'In Process'
 
-  const now = useNow(1000);
+  // Master 1-second interval to tick waiting timers live
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
-  const mountedRef = useRef(true);
-  const inFlightRef = useRef(false);
-  const overridesRef = useRef({}); // id -> status set locally, waiting for server confirmation
-  const pendingUpdatesRef = useRef(new Set());
-
-  // ---------------------------------------------------------------- fetching
-  const loadOrders = useCallback(async ({ manual = false } = {}) => {
-    if (inFlightRef.current) return; // never run two requests at once
-    inFlightRef.current = true;
-    if (manual) setRefreshing(true);
-
+  // Fetch KOTs helper
+  const loadKOTs = useCallback(async (isSilent = false) => {
+    if (!isSilent) setRefreshing(true);
     try {
       const data = await fetchKots();
-      if (!mountedRef.current) return;
-      setOrders(mergeServerOrders(data, overridesRef.current));
-      setLastRefresh(new Date());
+      setKots(data);
+      setLastUpdated(new Date());
       setError(null);
     } catch (err) {
-      if (mountedRef.current) {
-        setError(err?.message || 'Unable to reach the order service.');
-      }
+      console.error('Failed to load KOTs:', err);
+      setError(err.message || 'Unable to connect to order server');
     } finally {
-      inFlightRef.current = false;
-      if (mountedRef.current) {
-        setLoading(false);
-        setRefreshing(false);
-      }
+      setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
-  // Initial load + 5-second polling (cleaned up on unmount)
+  // Initial load + 5-second polling interval
   useEffect(() => {
-    mountedRef.current = true;
-    loadOrders();
-    const id = setInterval(() => loadOrders(), POLL_INTERVAL_MS);
-    return () => {
-      mountedRef.current = false;
-      clearInterval(id);
-    };
-  }, [loadOrders]);
+    loadKOTs();
+    const pollInterval = setInterval(() => {
+      loadKOTs(true);
+    }, POLL_INTERVAL_MS);
+    return () => clearInterval(pollInterval);
+  }, [loadKOTs]);
 
-  // Auto-dismiss toast
-  useEffect(() => {
-    if (!toast) return undefined;
-    const id = setTimeout(() => setToast(null), TOAST_DURATION_MS);
-    return () => clearTimeout(id);
-  }, [toast]);
-
-  // ----------------------------------------------------------------- actions
-  const changeStatus = useCallback(async (order, newStatus) => {
-    if (order.status === newStatus) return; // no repeated updates
-    if (pendingUpdatesRef.current.has(order.id)) return; // request already running
-
-    const previousStatus = order.status;
-    pendingUpdatesRef.current.add(order.id);
-    setBusyIds(Array.from(pendingUpdatesRef.current));
-
-    // Optimistic update + remember it so a stale poll can't undo it
-    overridesRef.current[order.id] = newStatus;
-    setOrders((prev) => prev.map((o) => (o.id === order.id ? { ...o, status: newStatus } : o)));
-
+  // Handle status update
+  const handleStatusChange = async (id, newStatus) => {
+    setUpdatingId(id);
     try {
-      await updateKotStatus(order.id, newStatus);
-      if (newStatus === STATUS.COMPLETED) {
-        const took = formatDuration(getElapsedSeconds(order.created_at));
-        setToast({ type: 'success', message: `${order.kot_id} completed after ${took}.` });
-      }
-    } catch (err) {
-      delete overridesRef.current[order.id];
-      setOrders((prev) =>
-        prev.map((o) => (o.id === order.id ? { ...o, status: previousStatus } : o))
+      const updated = await updateKotStatus(id, newStatus);
+      setKots((prev) =>
+        prev.map((k) => (k.id === id ? { ...k, status: updated.status || newStatus } : k))
       );
-      setToast({
-        type: 'error',
-        message: `Could not update ${order.kot_id}. ${err?.message || 'Please try again.'}`,
-      });
+    } catch (err) {
+      alert(`Failed to update order status: ${err.message}`);
     } finally {
-      pendingUpdatesRef.current.delete(order.id);
-      setBusyIds(Array.from(pendingUpdatesRef.current));
+      setUpdatingId(null);
     }
-  }, []);
+  };
 
-  // ----------------------------------------------------------- derived state
-  // Oldest first, by the real created_at timestamp. Completed orders leave the queue.
-  const activeOrders = useMemo(
-    () =>
-      orders
-        .filter((o) => o.status !== STATUS.COMPLETED)
-        .sort((a, b) => parseTimestamp(a.created_at) - parseTimestamp(b.created_at) || a.id - b.id),
-    [orders]
-  );
+  // Sort: Oldest pending/in-process orders first (FIFO kitchen discipline)
+  // Filters out 'Completed' orders from live kitchen queue
+  const activeOrders = useMemo(() => {
+    return kots
+      .filter((k) => k.status !== STATUS.COMPLETED)
+      .filter((k) => (filter === 'ALL' ? true : k.status === filter))
+      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  }, [kots, filter]);
 
-  const pendingCount = activeOrders.filter((o) => o.status === STATUS.PENDING).length;
-  const inProcessCount = activeOrders.length - pendingCount;
-
-  // ------------------------------------------------------------------ render
-  const showInitialLoader = loading && orders.length === 0;
-  const showBlockingError = !!error && orders.length === 0 && !loading;
+  // Stats calculation
+  const stats = useMemo(() => {
+    const active = kots.filter((k) => k.status !== STATUS.COMPLETED);
+    const pending = active.filter((k) => k.status === STATUS.PENDING).length;
+    const inProcess = active.filter((k) => k.status === STATUS.IN_PROCESS).length;
+    let criticalCount = 0;
+    active.forEach((k) => {
+      const sec = getElapsedSeconds(k.created_at, now);
+      if (getWaitLevel(sec) === 'critical') criticalCount++;
+    });
+    return { total: active.length, pending, inProcess, criticalCount };
+  }, [kots, now]);
 
   return (
-    <div className="kot-page">
+    <div className="kot-app-container">
+      {/* Top Header / Branding Bar */}
       <header className="kot-header">
-        <div className="kot-title-block">
-          <div className="kot-title-row">
-            <h1>Kitchen Order Tickets</h1>
-            <span className="live-badge" aria-label="Live orders">
-              <span className="live-dot" />
-              LIVE ORDERS
-            </span>
+        <div className="kot-branding">
+          <div className="kot-logo-badge">
+            <ChefHatIcon />
           </div>
-          <p className="kot-subtitle">Oldest order first. Mark each ticket as it moves through the kitchen.</p>
+          <div>
+            <h1 className="kot-title">Kitchen Order Display (KOT)</h1>
+            <p className="kot-subtitle">Live Kitchen Operations &amp; Order Fulfillment Queue</p>
+          </div>
         </div>
 
-        <div className="kot-stats">
-          <div className="stat stat-main">
-            <span className="stat-value">{activeOrders.length}</span>
-            <span className="stat-label">Active queue</span>
+        <div className="kot-header-actions">
+          <div className="kot-last-updated">
+            <span className="live-pulse" />
+            <span>Updated: {formatRefreshTime(lastUpdated)}</span>
           </div>
-          <div className="stat">
-            <span className="stat-value stat-value-pending">{pendingCount}</span>
-            <span className="stat-label">Pending</span>
-          </div>
-          <div className="stat">
-            <span className="stat-value stat-value-process">{inProcessCount}</span>
-            <span className="stat-label">In process</span>
-          </div>
-          <div className="refresh-block">
-            <span className="refresh-time">
-              Last refresh {lastRefresh ? formatRefreshTime(lastRefresh) : '—'}
-            </span>
-            <button
-              type="button"
-              className="refresh-btn"
-              onClick={() => loadOrders({ manual: true })}
-              disabled={refreshing}
-            >
-              <FaSyncAlt className={refreshing ? 'spin' : ''} aria-hidden="true" />
-              {refreshing ? 'Refreshing' : 'Refresh'}
-            </button>
-          </div>
+
+          <button
+            type="button"
+            className="kot-btn kot-btn-refresh"
+            onClick={() => loadKOTs()}
+            disabled={refreshing}
+            title="Manual refresh"
+          >
+            <RefreshIcon spinning={refreshing} />
+            <span>{refreshing ? 'Refreshing...' : 'Refresh'}</span>
+          </button>
         </div>
       </header>
 
-      {error && orders.length > 0 && (
-        <div className="error-banner" role="alert">
-          <FaExclamationTriangle aria-hidden="true" />
-          <span>Couldn’t refresh orders: {error}. Showing the last known data and retrying every 5 seconds.</span>
+      {/* Metric Summary Cards */}
+      <section className="kot-stats-grid">
+        <div
+          className={`stat-card ${filter === 'ALL' ? 'active' : ''}`}
+          onClick={() => setFilter('ALL')}
+          role="button"
+          tabIndex={0}
+        >
+          <span className="stat-label">Active Orders</span>
+          <span className="stat-value">{stats.total}</span>
+          <span className="stat-footnote">In kitchen pipeline</span>
         </div>
-      )}
 
-      <main className="table-card">
-        {showInitialLoader && (
-          <div className="state-panel" role="status">
-            <div className="loader" />
-            <p className="state-title">Loading orders…</p>
+        <div
+          className={`stat-card stat-pending ${filter === STATUS.PENDING ? 'active' : ''}`}
+          onClick={() => setFilter(STATUS.PENDING)}
+          role="button"
+          tabIndex={0}
+        >
+          <span className="stat-label">Pending</span>
+          <span className="stat-value">{stats.pending}</span>
+          <span className="stat-footnote">Awaiting preparation</span>
+        </div>
+
+        <div
+          className={`stat-card stat-process ${filter === STATUS.IN_PROCESS ? 'active' : ''}`}
+          onClick={() => setFilter(STATUS.IN_PROCESS)}
+          role="button"
+          tabIndex={0}
+        >
+          <span className="stat-label">In Process</span>
+          <span className="stat-value">{stats.inProcess}</span>
+          <span className="stat-footnote">Cooking on station</span>
+        </div>
+
+        <div className="stat-card stat-critical">
+          <span className="stat-label">Delayed Orders (&gt;20m)</span>
+          <span className="stat-value text-critical">{stats.criticalCount}</span>
+          <span className="stat-footnote">Needs urgent attention</span>
+        </div>
+      </section>
+
+      {/* Main Order Queue Table Card */}
+      <main className="kot-main-card">
+        <div className="kot-table-toolbar">
+          <div className="toolbar-left">
+            <h2 className="toolbar-title">Active Kitchen Tickets</h2>
+            <span className="badge badge-sort">Oldest First (FIFO)</span>
+            {filter !== 'ALL' && (
+              <span className="badge badge-filter">Filter: {filter}</span>
+            )}
           </div>
-        )}
 
-        {showBlockingError && (
-          <div className="state-panel" role="alert">
-            <FaExclamationTriangle className="state-icon state-icon-error" aria-hidden="true" />
-            <p className="state-title">Orders could not be loaded</p>
-            <p className="state-text">{error}</p>
-            <button type="button" className="refresh-btn" onClick={() => loadOrders({ manual: true })}>
-              <FaSyncAlt aria-hidden="true" /> Try again
+          <div className="toolbar-legend">
+            <span className="legend-item">
+              <span className="legend-indicator normal" />
+              &lt; 10 min
+            </span>
+            <span className="legend-item">
+              <span className="legend-indicator warn" />
+              10–20 min (Warning)
+            </span>
+            <span className="legend-item">
+              <span className="legend-indicator critical" />
+              &gt; 20 min (Delayed / Critical)
+            </span>
+          </div>
+        </div>
+
+        {error && (
+          <div className="kot-alert-banner">
+            <AlertTriangleIcon />
+            <span>{error}</span>
+            <button type="button" className="btn-retry" onClick={() => loadKOTs()}>
+              Retry
             </button>
           </div>
         )}
 
-        {!showInitialLoader && !showBlockingError && activeOrders.length === 0 && (
-          <div className="state-panel">
-            <FaUtensils className="state-icon" aria-hidden="true" />
-            <p className="state-title">No active orders</p>
-            <p className="state-text">New tickets appear here automatically as soon as they are placed.</p>
-          </div>
-        )}
-
-        {!showInitialLoader && !showBlockingError && activeOrders.length > 0 && (
-          <div className="table-scroll">
-            <table className="kot-table">
-              <thead>
+        <div className="table-responsive">
+          <table className="kot-table">
+            <thead>
+              <tr>
+                <th style={{ width: '60px' }}>#</th>
+                <th style={{ width: '130px' }}>KOT ID</th>
+                <th style={{ minWidth: '240px' }}>Items &amp; Quantity</th>
+                <th style={{ minWidth: '180px' }}>Order Note / Instruction</th>
+                <th style={{ width: '110px' }}>Placed</th>
+                <th style={{ width: '160px' }}>Waiting Time</th>
+                <th style={{ width: '130px' }}>Status</th>
+                <th style={{ width: '170px', textAlign: 'center' }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading && kots.length === 0 ? (
                 <tr>
-                  <th className="col-queue">Queue No.</th>
-                  <th className="col-kot">KOT ID</th>
-                  <th className="col-items">Items</th>
-                  <th className="col-time">Order Date &amp; Time</th>
-                  <th className="col-wait">Waiting Time</th>
-                  <th className="col-status">Status</th>
-                  <th className="col-action">Action</th>
+                  <td colSpan={8} className="table-state-cell">
+                    <div className="loading-spinner" />
+                    <p>Loading kitchen order queue...</p>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {activeOrders.map((order, index) => {
-                  const elapsed = getElapsedSeconds(order.created_at, now);
-                  const level = getWaitLevel(elapsed);
-                  const busy = busyIds.includes(order.id);
-                  const inProcess = order.status === STATUS.IN_PROCESS;
+              ) : activeOrders.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="table-state-cell empty-state">
+                    <div className="empty-icon-wrap">
+                      <CheckIcon />
+                    </div>
+                    <h3>Kitchen Queue is Clear!</h3>
+                    <p>No {filter === 'ALL' ? 'pending or in-process' : filter.toLowerCase()} orders right now.</p>
+                  </td>
+                </tr>
+              ) : (
+                activeOrders.map((kot, index) => {
+                  const elapsedSec = getElapsedSeconds(kot.created_at, now);
+                  const waitLevel = getWaitLevel(elapsedSec);
+                  const isUpdating = updatingId === kot.id;
+                  const isInProcess = kot.status === STATUS.IN_PROCESS;
+                  const note = kot.note || kot.instruction || kot.special_instruction || '';
 
                   return (
-                    <tr key={order.id} className={`is-${level}`}>
-                      <td className="col-queue">
-                        <span className="queue-no">{index + 1}</span>
+                    <tr
+                      key={kot.id}
+                      className={`kot-row row-${waitLevel} ${isInProcess ? 'is-in-process' : ''}`}
+                    >
+                      {/* # Serial */}
+                      <td className="cell-serial">{index + 1}</td>
+
+                      {/* KOT ID */}
+                      <td className="cell-kot-id">
+                        <span className="kot-id-tag">{kot.kot_id || `KOT-${kot.id}`}</span>
                       </td>
-                      <td className="col-kot">
-                        <span className="kot-id">{order.kot_id}</span>
-                      </td>
-                      <td className="col-items">
-                        <ul className="item-list">
-                          {order.items.map((item, i) => (
-                            <li key={`${item.item_name}-${i}`}>
-                              <span className="item-qty">{item.quantity}×</span>
-                              {item.item_name}
-                            </li>
-                          ))}
+
+                      {/* Items */}
+                      <td className="cell-items">
+                        <ul className="items-list">
+                          {Array.isArray(kot.items) && kot.items.length > 0 ? (
+                            kot.items.map((item, i) => (
+                              <li key={i} className="item-row">
+                                <span className="item-qty">{item.quantity}×</span>
+                                <span className="item-name">{item.item_name || item.name}</span>
+                              </li>
+                            ))
+                          ) : (
+                            <span className="text-muted">No items</span>
+                          )}
                         </ul>
                       </td>
-                      <td className="col-time">
-                        <span className="time-main">{formatOrderTime(order.created_at)}</span>
-                        <span className="time-sub">{formatOrderDate(order.created_at)}</span>
+
+                      {/* Note / Special Instruction Column */}
+                      <td className="cell-note">
+                        {note ? (
+                          <div className="note-card">
+                            <NoteIcon />
+                            <span>{note}</span>
+                          </div>
+                        ) : (
+                          <span className="no-note">—</span>
+                        )}
                       </td>
-                      <td className="col-wait">
-                        <span className={`wait wait-${level}`}>
-                          {level !== 'normal' && <FaExclamationTriangle aria-label="Long wait" />}
-                          {formatDuration(elapsed)}
+
+                      {/* Placed Time */}
+                      <td className="cell-placed">
+                        <span className="time-val">{formatOrderTime(kot.created_at)}</span>
+                      </td>
+
+                      {/* Waiting Time with Severity Color Badge */}
+                      <td className="cell-wait">
+                        <div className={`wait-badge badge-${waitLevel}`}>
+                          <ClockIcon />
+                          <span className="wait-duration">{formatDuration(elapsedSec)}</span>
+                        </div>
+                      </td>
+
+                      {/* Status Badge */}
+                      <td className="cell-status">
+                        <span className={`status-pill pill-${kot.status.toLowerCase().replace(/\s+/g, '-')}`}>
+                          {kot.status}
                         </span>
                       </td>
-                      <td className="col-status">
-                        <span className={`status-badge ${statusClass(order.status)}`}>{order.status}</span>
-                      </td>
-                      <td className="col-action">
-                        <div className="actions">
-                          <span
-                            className="tooltip-wrap"
-                            data-tooltip={inProcess ? 'Already in process' : 'Start cooking'}
+
+                      {/* Professional Action Buttons with Clean Icons */}
+                      <td className="cell-actions">
+                        <div className="action-button-group">
+                          {/* In Process button */}
+                          <button
+                            type="button"
+                            className="btn-action btn-process"
+                            disabled={isUpdating || isInProcess}
+                            onClick={() => handleStatusChange(kot.id, STATUS.IN_PROCESS)}
+                            title={isInProcess ? 'Already in process' : 'Start preparation (In Process)'}
+                            aria-label={`Mark ${kot.kot_id} in process`}
                           >
-                            <button
-                              type="button"
-                              className="icon-btn btn-process"
-                              onClick={() => changeStatus(order, STATUS.IN_PROCESS)}
-                              disabled={inProcess || busy}
-                              aria-label={`Mark ${order.kot_id} as in process`}
-                            >
-                              <FaPlay aria-hidden="true" />
-                            </button>
-                          </span>
-                          <span className="tooltip-wrap" data-tooltip="Mark as completed">
-                            <button
-                              type="button"
-                              className="icon-btn btn-complete"
-                              onClick={() => changeStatus(order, STATUS.COMPLETED)}
-                              disabled={busy}
-                              aria-label={`Mark ${order.kot_id} as completed`}
-                            >
-                              <FaCheckCircle aria-hidden="true" />
-                            </button>
-                          </span>
+                            <PlayIcon />
+                            <span className="btn-label">Start</span>
+                          </button>
+
+                          {/* Completed button */}
+                          <button
+                            type="button"
+                            className="btn-action btn-complete"
+                            disabled={isUpdating}
+                            onClick={() => handleStatusChange(kot.id, STATUS.COMPLETED)}
+                            title="Mark completed"
+                            aria-label={`Mark ${kot.kot_id} completed`}
+                          >
+                            <CheckIcon />
+                            <span className="btn-label">Done</span>
+                          </button>
                         </div>
                       </td>
                     </tr>
                   );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </main>
-
-      {toast && (
-        <div className={`toast toast-${toast.type}`} role="status" aria-live="polite">
-          {toast.message}
+                })
+              )}
+            </tbody>
+          </table>
         </div>
-      )}
+      </main>
     </div>
   );
 }

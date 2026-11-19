@@ -5,7 +5,7 @@
  * REAL BACKEND:         set USE_MOCK = false and point API_BASE_URL to your Express server.
  *
  * Expected backend contract:
- *   GET   {API_BASE_URL}/kots              -> [{ id, kot_id, items[], created_at, status }]
+ *   GET   {API_BASE_URL}/kots              -> [{ id, kot_id, items[], note, created_at, status }]
  *   PATCH {API_BASE_URL}/kots/:id/status   body: { "status": "In Process" | "Completed" }
  *                                          -> updated KOT object
  */
@@ -15,12 +15,10 @@ export const API_BASE_URL = 'http://localhost:5000/api';
 
 // ---- Mock-only settings (ignored when USE_MOCK = false) ----
 const MOCK_DATA_URL = '/kotData.json';
-const MOCK_LATENCY_MS = 300;
-// The sample file has fixed timestamps. Shift them so the oldest order is "12 minutes ago"
-// and the timers are meaningful whenever you run the demo.
+const MOCK_LATENCY_MS = 250;
+// Shift demo timestamps so oldest is ~22m ago to demonstrate normal, warn, and critical states.
 const REBASE_DEMO_TIMES = true;
-const REBASE_OLDEST_MINUTES_AGO = 12;
-// Simulate the kitchen receiving a new order every so often.
+const REBASE_OLDEST_MINUTES_AGO = 22;
 const SIMULATE_NEW_ORDERS = true;
 const NEW_ORDER_EVERY_MS = 45 * 1000;
 
@@ -35,12 +33,18 @@ const MENU = [
   'Masala Dosa',
 ];
 
+const SAMPLE_NOTES = [
+  'Extra spicy, crispy',
+  'Less oil, no onions',
+  'Jain preparation',
+  'Pack separately for takeaway',
+  'Serve sauce on the side',
+  '',
+];
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
-// ---------------------------------------------------------------------------
-// Real HTTP helper
-// ---------------------------------------------------------------------------
 async function request(path, options = {}) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     headers: { 'Content-Type': 'application/json' },
@@ -52,9 +56,6 @@ async function request(path, options = {}) {
   return response.json();
 }
 
-// ---------------------------------------------------------------------------
-// Mock "database" (in-memory, loaded once from kotData.json)
-// ---------------------------------------------------------------------------
 let mockDb = null;
 let mockDbLoading = null;
 let lastSpawnAt = 0;
@@ -100,6 +101,7 @@ function maybeSpawnOrder(db) {
   const first = pick();
   let second = pick();
   while (second === first) second = pick();
+  const note = SAMPLE_NOTES[Math.floor(Math.random() * SAMPLE_NOTES.length)];
 
   db.push({
     id: nextId,
@@ -108,16 +110,12 @@ function maybeSpawnOrder(db) {
       { item_name: first, quantity: 1 + Math.floor(Math.random() * 3) },
       { item_name: second, quantity: 1 },
     ],
+    note,
     created_at: new Date(now).toISOString(),
     status: 'Pending',
   });
 }
 
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
-
-/** Fetch all KOTs. */
 export async function fetchKots() {
   if (!USE_MOCK) return request('/kots');
 
@@ -127,7 +125,6 @@ export async function fetchKots() {
   return clone(db);
 }
 
-/** Update the status of a single KOT. */
 export async function updateKotStatus(id, status) {
   if (!USE_MOCK) {
     return request(`/kots/${id}/status`, {
